@@ -325,8 +325,8 @@ Transmogrification.SetCopperCost = 0
 #
 #    Transmogrification.PetSpellId
 #        Description: The ID used by the transmog pet in the spell_dbc table
-#        Example:     Transmogrification.PetSpellId = 2000100
-#        Default:     2000100
+#        Example:     Transmogrification.PetSpellId = 200100
+#        Default:     200100
 #
 
 Transmogrification.EnablePlus = 0

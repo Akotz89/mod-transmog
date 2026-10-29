@@ -1225,7 +1225,7 @@ void Transmogrification::LoadConfig(bool reload)
         plusDataMap[PLUS_FEATURE_SKIP_LEVEL_REQ].push_back(Acore::StringTo<uint32>(itr).value());
     }
 
-    PetSpellId = sConfigMgr->GetOption<uint32>("Transmogrification.PetSpellId", 2000100);
+    PetSpellId = sConfigMgr->GetOption<uint32>("Transmogrification.PetSpellId", 200100);
 
     if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(PetSpellId))
         PetEntry = spellInfo->Effects[EFFECT_0].MiscValue;
