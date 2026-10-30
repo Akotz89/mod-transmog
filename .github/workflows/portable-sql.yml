@@ -1,0 +1,17 @@
+name: Portable transmog SQL
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  sqlite-portable-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check migration idempotence and defaults
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: tests
+        run: python3 -m unittest -v test_portable_access.PortableAccessTest.test_sql_and_default
