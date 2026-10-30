@@ -1,0 +1,92 @@
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <map>
+#include <string>
+using uint8 = uint8_t; using uint32 = uint32_t; using uint64 = uint64_t; using int32 = int32_t;
+constexpr int32 MAX_MONEY_AMOUNT = 0x7ffffffe;
+constexpr uint32 HIDDEN_ITEM_ID=1, EQUIPMENT_SLOT_START=0, EQUIPMENT_SLOT_END=19,
+    INVENTORY_SLOT_BAG_0=0, GOSSIP_ICON_MONEY_BAG=0, LANG_TRANSMOG_SAVESET=1,
+    LANG_TRANSMOG_INSERTSETNAME=2, LANG_TRANSMOG_NOT_ENOUGH_MONEY=3;
+@HELPER@
+struct WorldSession {};
+struct Item { uint32 entry; uint32 GetGUID() const { return entry; } };
+struct ItemTemplate { bool suitable; uint32 price; };
+struct Player {
+    std::map<uint8, Item> slots; WorldSession session; int32 funds = MAX_MONEY_AMOUNT; int32 moneyDelta = 0;
+    WorldSession* GetSession() { return &session; }
+    Item* GetItemByPos(uint8, uint8 slot) { auto it=slots.find(slot); return it==slots.end()?nullptr:&it->second; }
+    bool HasEnoughMoney(int32 amount) { return funds >= amount; }
+    void ModifyMoney(int32 delta) { moneyDelta += delta; }
+};
+struct ObjectMgr {
+    std::map<uint32, ItemTemplate> templates;
+    const ItemTemplate* GetItemTemplate(uint32 entry) { auto it=templates.find(entry); return it==templates.end()?nullptr:&it->second; }
+} manager;
+auto* sObjectMgr=&manager;
+struct Transmog {
+    int32 fixed=0; float modifier=3;
+    const char* GetSlotName(uint8 slot, WorldSession*) { return slot==0||slot==14?"supported":nullptr; }
+    uint32 GetFakeEntry(uint32 guid) { return guid; }
+    bool SuitableForTransmogrification(Player*, const ItemTemplate* item) { return item->suitable; }
+    uint32 GetSpecialPrice(const ItemTemplate* item) { return item->price; }
+    std::string GetItemIcon(uint32,uint32,uint32,int,int) { return "icon"; }
+    std::string GetItemLink(uint32,WorldSession*) { return "link"; }
+    float GetSetCostModifier() { return modifier; }
+    int32 GetSetCopperCost() { return fixed; }
+} transmog;
+auto* sT=&transmog;
+std::string Tstr(WorldSession*,uint32) { return "text"; }
+struct ChatHandler { explicit ChatHandler(WorldSession*) {} void SendNotification(std::string) {} };
+struct Preview { bool button=false; uint32 cost=0; int rows=0; } displayed;
+void AddGossipItemFor(Player*,uint32,std::string,uint32,uint32) { ++displayed.rows; }
+void AddGossipItemFor(Player*,uint32,std::string,uint32,uint32,std::string,uint32 cost,bool coded) {
+    assert(coded); displayed.button=true; displayed.cost=cost;
+}
+Preview preview(Player* player) {
+    displayed={}; auto* session=player->GetSession();
+    @PREVIEW@
+    return displayed;
+}
+struct Saved { bool accepted=false; int32 cost=0; int items=0; };
+Saved save(Player* player) {
+    Saved result; player->moneyDelta=0;
+    do {
+        @SAVE@
+        result={true,cost,static_cast<int>(items.size())};
+        @CHARGE@
+    } while (false);
+    return result;
+}
+int main() {
+    Player player; manager.templates[100]={true,200}; manager.templates[200]={false,300};
+    auto check = [&](bool button, int rows, bool accepted, int32 cost) {
+        auto view=preview(&player); auto saved=save(&player);
+        assert(view.button==button && view.rows==rows && saved.accepted==accepted);
+        if (accepted) { assert(view.cost==static_cast<uint32>(cost)); assert(saved.cost==cost); assert(saved.items==rows); assert(player.moneyDelta==-cost); }
+        else assert(player.moneyDelta==0);
+    };
+    check(false,0,false,0);
+    player.slots[0]={HIDDEN_ITEM_ID}; transmog.fixed=-500; check(true,1,true,0);
+    transmog.fixed=16777217;
+    for (float modifier : {0.f,0.5f,3.f}) {
+        transmog.modifier=modifier; check(true,1,true,16777217);
+        player.slots[14]={100}; check(true,2,true,16777217+static_cast<int32>(200*modifier));
+        player.slots.erase(14);
+    }
+    player.slots[0]={100}; transmog.modifier=.5f; transmog.fixed=-50; check(true,1,true,50);
+    player.slots[0]={200}; check(false,0,false,0);
+    player.slots[0]={999}; check(false,0,false,0);
+    player.slots[0]={0}; player.slots[1]={HIDDEN_ITEM_ID}; check(false,0,false,0);
+    player.slots.clear(); player.slots[0]={HIDDEN_ITEM_ID}; manager.templates[1]={true,777};
+    transmog.fixed=500; check(true,1,true,500);
+    player.slots[0]={100}; manager.templates[100].price=UINT32_MAX; transmog.modifier=3.f; transmog.fixed=0;
+    check(false,1,false,0);
+    transmog.modifier=std::numeric_limits<float>::infinity(); check(false,1,false,0);
+    transmog.modifier=std::numeric_limits<float>::quiet_NaN(); check(false,1,false,0);
+    player.slots.clear(); player.slots[0]={HIDDEN_ITEM_ID}; transmog.modifier=1.f;
+    transmog.fixed=MAX_MONEY_AMOUNT; check(true,1,true,MAX_MONEY_AMOUNT);
+    player.funds=0; auto view=preview(&player); auto saved=save(&player);
+    assert(view.button && !saved.accepted);
+}
