@@ -26,8 +26,23 @@ Cant transmogrify rediculus items // Foereaper: would be fun to stab people with
 #include "DatabaseEnv.h"
 #include "WorldPacket.h"
 #include "Opcodes.h"
+#include <cmath>
 
 #define sT sTransmogrification
+
+#ifdef PRESETS
+static bool GetPresetCost(uint64 itemCost, float modifier, int32 copperCost, int32& cost)
+{
+    float scaled = static_cast<float>(itemCost) * modifier;
+    if (!std::isfinite(scaled))
+        return false;
+    double total = std::trunc(static_cast<double>(scaled)) + copperCost;
+    if (total > MAX_MONEY_AMOUNT)
+        return false;
+    cost = total <= 0 ? 0 : static_cast<int32>(total);
+    return true;
+}
+#endif
 
 static inline const std::string& Tstr(WorldSession* session, uint32 id)
 {
@@ -353,7 +368,7 @@ public:
                     OnGossipHello(player, creature);
                     return true;
                 }
-                uint32 cost = 0;
+                uint64 itemCost = 0;
                 bool canSave = false;
                 for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
                 {
@@ -364,18 +379,25 @@ public:
                         uint32 entry = sT->GetFakeEntry(newItem->GetGUID());
                         if (!entry)
                             continue;
-                        const ItemTemplate* temp = sObjectMgr->GetItemTemplate(entry);
-                        if (!temp)
-                            continue;
-                        if (!sT->SuitableForTransmogrification(player, temp)) // no need to check?
-                            continue;
-                        cost += sT->GetSpecialPrice(temp);
+                        if (entry != HIDDEN_ITEM_ID)
+                        {
+                            const ItemTemplate* temp = sObjectMgr->GetItemTemplate(entry);
+                            if (!temp)
+                                continue;
+                            if (!sT->SuitableForTransmogrification(player, temp))
+                                continue;
+                            itemCost += sT->GetSpecialPrice(temp);
+                        }
                         canSave = true;
                         AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, sT->GetItemIcon(entry, 30, 30, -18, 0) + sT->GetItemLink(entry, session), EQUIPMENT_SLOT_END + 8, 0);
                     }
                 }
                 if (canSave)
-                    AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, "|TInterface/GuildBankFrame/UI-GuildBankFrame-NewTab:30:30:-18:0|t" + Tstr(session, LANG_TRANSMOG_SAVESET), 0, 0, Tstr(session, LANG_TRANSMOG_INSERTSETNAME), cost*sT->GetSetCostModifier() + sT->GetSetCopperCost(), true);
+                {
+                    int32 cost;
+                    if (GetPresetCost(itemCost, sT->GetSetCostModifier(), sT->GetSetCopperCost(), cost))
+                        AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, "|TInterface/GuildBankFrame/UI-GuildBankFrame-NewTab:30:30:-18:0|t" + Tstr(session, LANG_TRANSMOG_SAVESET), 0, 0, Tstr(session, LANG_TRANSMOG_INSERTSETNAME), cost, true);
+                }
                 AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, "|TInterface/PaperDollInfoFrame/UI-GearManager-Undo:30:30:-18:0|t" + Tstr(session, LANG_TRANSMOG_UPDATEMENU), sender, action);
                 AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, "|TInterface/ICONS/Ability_Spy:30:30:-18:0|t" + Tstr(session, LANG_TRANSMOG_BACK), EQUIPMENT_SLOT_END + 4, 0);
                 SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, creature->GetGUID());
@@ -437,7 +459,7 @@ public:
                 if (sT->presetByName[player->GetGUID()].find(presetID) != sT->presetByName[player->GetGUID()].end())
                     continue; // Just remember never to use presetByName[pGUID][presetID] when finding etc!
 
-                int32 cost = 0;
+                uint64 itemCost = 0;
                 std::map<uint8, uint32> items;
                 for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
                 {
@@ -455,15 +477,19 @@ public:
                                 continue;
                             if (!sT->SuitableForTransmogrification(player, temp))
                                 continue;
-                            cost += sT->GetSpecialPrice(temp);
+                            itemCost += sT->GetSpecialPrice(temp);
                         }
                         items[slot] = entry;
                     }
                 }
                 if (items.empty())
                     break; // no transmogrified items were found to be saved
-                cost *= sT->GetSetCostModifier();
-                cost += sT->GetSetCopperCost();
+                int32 cost;
+                if (!GetPresetCost(itemCost, sT->GetSetCostModifier(), sT->GetSetCopperCost(), cost))
+                {
+                    ChatHandler(player->GetSession()).SendNotification(Tstr(player->GetSession(), LANG_TRANSMOG_NOT_ENOUGH_MONEY));
+                    break;
+                }
                 if (!player->HasEnoughMoney(cost))
                 {
                     ChatHandler(player->GetSession()).SendNotification(Tstr(player->GetSession(), LANG_TRANSMOG_NOT_ENOUGH_MONEY));
